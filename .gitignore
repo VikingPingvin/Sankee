@@ -1,0 +1,33 @@
+# Binaries
+sankee
+*.exe
+
+# Database
+*.db
+*.db-shm
+*.db-wal
+
+# Config (may contain local overrides)
+config.json
+
+# Build output
+/dist/
+bin/
+build/
+
+# Go toolchain
+vendor/
+
+# IDE / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+.claude
+.docs
+
+
+# Markdown
+*.md
+!README.md

@@ -1,0 +1,62 @@
+version: "3"
+
+vars:
+  BUILD_PATH: ./bin
+  BINARY: sankee
+  DB: sankee.db
+  VERSION:
+    sh: git describe --tags --always --dirty 2>{{if eq OS "windows"}}NUL{{else}}/dev/null{{end}} || echo dev
+  LDFLAGS: "-s -w -X main.version={{.VERSION}}"
+
+tasks:
+  default:
+    desc: List available tasks
+    cmd: task --list
+    silent: true
+
+  build:
+    desc: Build release binary (trimpath + ldflags) → bin/
+    sources:
+      - '**/*.go'
+      - go.mod
+      - go.sum
+    generates:
+      - "{{.BUILD_PATH}}/{{.BINARY}}{{exeExt}}"
+    cmd: go build -trimpath -ldflags "{{.LDFLAGS}}" -o {{.BUILD_PATH}}/{{.BINARY}}{{exeExt}} .
+
+  build:dev:
+    desc: Build dev binary (debug info retained) → bin/
+    cmd: go build -o {{.BUILD_PATH}}/{{.BINARY}}{{exeExt}} .
+
+  run:
+    desc: Run the dev server (extra flags via --)
+    cmd: go run . {{.CLI_ARGS}}
+
+  test:
+    desc: Run tests with race detector
+    cmd: go test -race ./...
+
+  test:verbose:
+    desc: Run tests with verbose output
+    cmd: go test -v -race ./...
+
+  lint:
+    desc: Run go vet
+    cmd: go vet ./...
+
+  clean:
+    desc: Remove build artifacts
+    cmd: rm -rf {{.BUILD_PATH}} dist/
+
+  tidy:
+    desc: Tidy go modules
+    cmd: go mod tidy
+
+  dist:
+    desc: Cross-compile release binaries for all platforms → dist/
+    deps: [lint, test]
+    cmds:
+      - mkdir -p dist
+      - CGO_ENABLED=0 GOOS=linux   GOARCH=amd64 go build -trimpath -ldflags "{{.LDFLAGS}}" -o dist/{{.BINARY}}-linux-amd64 .
+      - CGO_ENABLED=0 GOOS=darwin  GOARCH=arm64 go build -trimpath -ldflags "{{.LDFLAGS}}" -o dist/{{.BINARY}}-darwin-arm64 .
+      - CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -trimpath -ldflags "{{.LDFLAGS}}" -o dist/{{.BINARY}}-windows-amd64.exe .

@@ -1,0 +1,15 @@
+services:
+  sankee:
+    build: .
+    ports:
+      - "8080:8080"
+    volumes:
+      - sankee_data:/data
+    environment:
+      SANKEE_ADDR: "0.0.0.0:8080"
+      SANKEE_DB_DRIVER: "sqlite"
+      SANKEE_DB_DSN: "/data/sankee.db"
+    restart: unless-stopped
+
+volumes:
+  sankee_data:

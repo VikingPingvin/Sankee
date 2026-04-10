@@ -1,0 +1,225 @@
+{{define "page"}}
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sankey Expense Tracker</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12"></script>
+  <script src="https://unpkg.com/d3@7/dist/d3.min.js"></script>
+  <script src="https://unpkg.com/d3-sankey@0.12.3/dist/d3-sankey.min.js"></script>
+</head>
+
+<body class="bg-gray-50 text-gray-800 p-6">
+
+  <!-- Workspace bar -->
+  <div class="flex items-center gap-3 mb-6 p-3 bg-white border border-gray-200 rounded shadow-sm">
+    <span class="text-sm font-semibold text-gray-500 uppercase tracking-wide">Workspace</span>
+
+    <!-- Selector: full page navigation on change -->
+    <select class="border border-gray-300 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+      onchange="location.href='/?ws='+this.value">
+      {{range .Workspaces}}
+      <option value="{{.ID}}" {{if eq .ID $.ActiveWorkspaceID}}selected{{end}}>{{.Name}}</option>
+      {{end}}
+    </select>
+
+    <!-- Delete active workspace -->
+    <button
+      class="text-sm px-2 py-1 rounded text-red-500 hover:text-red-700 hover:bg-red-50 disabled:opacity-40 disabled:cursor-not-allowed"
+      hx-delete="/workspaces/{{.ActiveWorkspaceID}}"
+      hx-confirm="Delete workspace '{{.ActiveWorkspaceName}}'? All data will be permanently removed." {{if le (len
+      .Workspaces) 1}}disabled{{end}} title="Delete this workspace">Delete</button>
+
+    <!-- Create new workspace -->
+    <form class="flex items-center gap-2 ml-auto" hx-post="/workspaces" hx-on::after-request="this.reset()">
+      <input
+        class="border border-gray-300 rounded px-2 py-1 text-sm w-48 focus:outline-none focus:ring-2 focus:ring-blue-400"
+        name="name" placeholder="New workspace name…" required>
+      <button class="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700" type="submit">+ Create</button>
+    </form>
+  </div>
+
+  <h1 class="text-2xl font-bold mb-6">{{.ActiveWorkspaceName}}</h1>
+  <div class="flex gap-8">
+
+    <!-- Left: Editable table -->
+    <div class="w-1/2">
+      <div id="nodes-table">
+        {{template "table" .}}
+      </div>
+    </div>
+
+    <!-- Right: Sankey diagram -->
+    <div class="w-1/2">
+      <h2 class="text-lg font-semibold mb-2">Sankey Diagram</h2>
+      <svg id="sankey-svg" viewBox="0 0 900 480" preserveAspectRatio="xMidYMid meet"
+        class="w-full bg-white border border-gray-200 rounded"></svg>
+    </div>
+  </div>
+
+  <script src="/static/sankey.js?v=5"></script>
+  <script>
+    // ── Focus newly created node label after HTMX swap ──────────────────────
+    document.body.addEventListener('htmx:afterSettle', function () {
+      const el = document.querySelector('[data-autofocus="1"]');
+      if (el) {
+        el.focus();
+        el.select();
+      }
+    });
+
+    // ── Tab from label → amount, skipping + button and parent selector ──────
+    document.addEventListener('keydown', function (e) {
+      if (e.key !== 'Tab' || e.shiftKey) return;
+      if (!e.target.matches('input[name="label"]')) return;
+      const row = e.target.closest('tr');
+      const amount = row && row.querySelector('input[name="amount"]');
+      if (amount) {
+        e.preventDefault();
+        amount.focus();
+      }
+    });
+  </script>
+</body>
+
+</html>
+{{end}}
+
+{{define "table"}}
+{{if .Error}}
+<div class="mb-3 p-3 bg-red-50 border border-red-300 rounded text-red-700 text-sm font-medium">
+  {{.Error}}
+</div>
+{{end}}
+
+<!-- Income section -->
+<div class="mb-4 p-3 bg-green-50 border border-green-200 rounded">
+  <div class="flex items-center gap-3 flex-wrap">
+    <span class="text-base font-bold text-green-800">Income</span>
+
+    <!-- Currency selector -->
+    <select
+      class="border border-green-300 rounded px-2 py-1 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-green-400"
+      name="symbol" hx-put="/currency" hx-trigger="change" hx-target="#nodes-table" hx-swap="innerHTML">
+      {{range .Currencies}}
+      <option value="{{.Symbol}}" {{if eq .Symbol $.Currency}}selected{{end}}>{{.Label}}</option>
+      {{end}}
+    </select>
+
+    <!-- Income amount -->
+    <div class="flex items-center gap-1">
+      <span class="text-sm text-gray-500">{{.Currency}}</span>
+      <input
+        class="border border-green-300 rounded px-2 py-1 text-sm w-32 focus:outline-none focus:ring-2 focus:ring-green-400"
+        name="amount" type="number" step="0.01" min="0" value="{{printf " %.2f" .IncomeAmount}}" hx-put="/income"
+        hx-trigger="change" hx-target="#nodes-table" hx-swap="innerHTML">
+    </div>
+
+    <!-- Unallocated -->
+    <div class="ml-auto text-sm text-gray-600">
+      Unallocated:
+      {{if lt .UnallocatedAmount 0.0}}
+      <span class="font-semibold text-red-600">{{.Currency}}{{printf "%.2f" .UnallocatedAmount}}</span>
+      <span class="text-xs text-red-500 ml-1">(over budget)</span>
+      {{else}}
+      <span class="font-semibold text-green-700">{{.Currency}}{{printf "%.2f" .UnallocatedAmount}}</span>
+      {{end}}
+    </div>
+  </div>
+</div>
+
+<table class="w-full text-sm border border-gray-200 rounded mb-4">
+  <thead class="bg-gray-100">
+    <tr>
+      <th class="text-left p-2">Label</th>
+      <th class="text-left p-2">Parent</th>
+      <th class="text-left p-2">Amount ({{.Currency}})</th>
+      <th class="p-2"></th>
+    </tr>
+  </thead>
+  <tbody>
+    {{range .Nodes}}
+    {{if eq .ID "income"}}
+    {{else if .IsVirtual}}
+    <!-- Virtual unallocated row — read-only, always present -->
+    <tr class="border-t border-gray-100 {{if lt .EffectiveAmount 0.0}}bg-red-50{{else}}bg-amber-50{{end}}">
+      <td class="p-2 text-gray-500 italic">Unallocated</td>
+      <td class="p-2 text-gray-400 text-xs">auto</td>
+      <td class="p-2 {{if lt .EffectiveAmount 0.0}}text-red-600 font-semibold{{else}}text-amber-700{{end}}">
+        {{$.Currency}}{{printf "%.2f" .EffectiveAmount}}
+      </td>
+      <td class="p-2"></td>
+    </tr>
+    {{else}}
+    {{$node := .}}
+    <tr class="border-t border-gray-100 {{if .HasChildren}}bg-gray-50{{end}}">
+      <td class="p-1" style="padding-left: {{.IndentPx}}px">
+        <div class="flex items-center gap-1">
+          <input class="flex-1 min-w-0 border border-gray-300 rounded px-2 py-1 {{if .HasChildren}}font-medium{{end}}"
+            name="label" value="{{.Label}}" {{if eq .ID $.FocusNodeID}}data-autofocus="1" {{end}}
+            hx-put="/nodes/{{.ID}}" hx-trigger="change" hx-target="#nodes-table" hx-swap="innerHTML"
+            hx-include="closest tr">
+          <button
+            class="flex-shrink-0 w-6 h-6 flex items-center justify-center rounded text-green-600 hover:bg-green-100 font-bold text-base leading-none"
+            title="Add item under {{.Label}}" hx-post="/nodes" hx-target="#nodes-table" hx-swap="innerHTML"
+            hx-vals='{"label": "New item", "parentID": "{{.ID}}", "amount": "0"}'>+</button>
+        </div>
+      </td>
+      <td class="p-1">
+        <select class="w-full border border-gray-300 rounded px-2 py-1" name="parentID" hx-put="/nodes/{{.ID}}"
+          hx-trigger="change" hx-target="#nodes-table" hx-swap="innerHTML" hx-include="closest tr">
+          {{range $.Nodes}}
+          {{if and (ne .ID $node.ID) (not .IsVirtual)}}
+          <option value="{{.ID}}" {{if eq .ID $node.ParentID}}selected{{end}}>{{.Label}}</option>
+          {{end}}
+          {{end}}
+        </select>
+      </td>
+      <td class="p-1">
+        {{if .HasChildren}}
+        <span class="block px-2 py-1 text-gray-500 text-sm">{{$.Currency}}{{printf "%.2f" .EffectiveAmount}}
+          (auto)</span>
+        {{else}}
+        <input class="w-full border border-gray-300 rounded px-2 py-1" name="amount" type="number" step="0.01" min="0"
+          value="{{.Amount}}" hx-put="/nodes/{{.ID}}" hx-trigger="change" hx-target="#nodes-table" hx-swap="innerHTML"
+          hx-include="closest tr">
+        {{end}}
+      </td>
+      <td class="p-1 text-center">
+        <button class="text-red-500 hover:text-red-700 font-bold px-2" hx-delete="/nodes/{{.ID}}"
+          hx-target="#nodes-table" hx-swap="innerHTML" hx-confirm="Delete this node and all its children?">×</button>
+      </td>
+    </tr>
+    {{end}}
+    {{end}}
+  </tbody>
+</table>
+
+<!-- Add node form -->
+<form class="flex gap-2 items-end flex-wrap" hx-post="/nodes" hx-target="#nodes-table" hx-swap="innerHTML"
+  hx-on::after-request="this.reset()">
+  <div class="flex flex-col gap-1">
+    <label class="text-xs text-gray-500">Label</label>
+    <input class="border border-gray-300 rounded px-2 py-1 text-sm" name="label" placeholder="e.g. Amazon" required>
+  </div>
+  <div class="flex flex-col gap-1">
+    <label class="text-xs text-gray-500">Parent</label>
+    <select class="border border-gray-300 rounded px-2 py-1 text-sm" name="parentID">
+      {{range .Nodes}}
+      {{if not .IsVirtual}}
+      <option value="{{.ID}}">{{.Label}}</option>
+      {{end}}
+      {{end}}
+    </select>
+  </div>
+  <div class="flex flex-col gap-1">
+    <label class="text-xs text-gray-500">Amount ({{.Currency}}) <span class="text-gray-400">optional</span></label>
+    <input class="border border-gray-300 rounded px-2 py-1 text-sm" name="amount" type="number" step="0.01" min="0"
+      placeholder="leave blank for category">
+  </div>
+  <button class="bg-blue-600 text-white rounded px-3 py-1 text-sm hover:bg-blue-700" type="submit">+ Add</button>
+</form>
+{{end}}

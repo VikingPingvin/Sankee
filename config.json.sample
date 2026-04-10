@@ -1,0 +1,6 @@
+{
+    "addr": "localhost:8080",
+    "debug_populate": false,
+    "db_driver": "sqlite",
+    "db_dsn": "sankee.db"
+}
